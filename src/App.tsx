@@ -975,9 +975,9 @@ export default function App() {
 
           {/* Clock & active date */}
           <div className="flex items-center gap-4 text-xs font-mono">
-            <div className="bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg flex items-center gap-1 shrink-0 text-amber-400 font-black w-[92px] justify-center tabular-nums">
+            <div className="bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg flex items-center gap-1 shrink-0 text-amber-400 font-black w-[110px] justify-center tabular-nums whitespace-nowrap">
               <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span className="inline-block">{currentTimeStr || "00:00:00 ص"}</span>
+              <span className="inline-block whitespace-nowrap">{currentTimeStr || "00:00:00 ص"}</span>
             </div>
           </div>
 

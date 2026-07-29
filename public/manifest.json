@@ -1,0 +1,18 @@
+{
+  "short_name": "Mr.Gamer",
+  "name": "Mr.Gamer - نظام الصالة الاحترافي المتكامل",
+  "description": "نظام احترافي متكامل لإدارة صالات ألعاب البلايستيشن والكومبيوتر، المبيعات، المصروفات، والتقارير المالية بشكل أوفلاين بالكامل.",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "display": "standalone",
+  "orientation": "any"
+}

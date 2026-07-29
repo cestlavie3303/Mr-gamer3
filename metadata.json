@@ -1,0 +1,6 @@
+{
+  "name": "Mr.Gamer",
+  "description": "نظام احترافي متكامل لإدارة صالات ألعاب البلايستيشن والكومبيوتر، المبيعات، المصروفات، والتقارير المالية بشكل أوفلاين بالكامل.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

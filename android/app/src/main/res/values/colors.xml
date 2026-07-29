@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ps_blue">#2979FF</color>
+    <color name="pc_orange">#FF6D00</color>
+    <color name="urgency_red">#FF1744</color>
+    <color name="header_gray">#AAAAAA</color>
+    <color name="notification_text">#FFFFFF</color>
+    <color name="notification_subtext">#BBBBBB</color>
+    <color name="notification_bg">#00000000</color>
+</resources>

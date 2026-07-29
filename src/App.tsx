@@ -421,6 +421,58 @@ export default function App() {
     }));
   };
 
+  // C2. Change players count but keep total cost the same by shortening the remaining time instead
+  // (used when extra players join and they don't want to pay a higher hourly rate)
+  const handleChangePlayersReduceTime = (deviceId: string, count: number) => {
+    const now = Date.now();
+    setDevices(prev => prev.map(d => {
+      if (d.id === deviceId && d.activeSession) {
+        const session = d.activeSession;
+        let updatedSegments = [...session.segments];
+        const lastIdx = updatedSegments.length - 1;
+        const lastSeg = { ...updatedSegments[lastIdx] };
+
+        const oldRate = lastSeg.ratePerHour;
+
+        // Save accumulated active time on current running segment
+        if (!session.isPaused) {
+          const elapsed = now - session.lastTickTimestamp;
+          if (elapsed > 0) {
+            lastSeg.accumulatedMs += elapsed;
+            updatedSegments[lastIdx] = lastSeg;
+          }
+        }
+
+        const elapsedMs = updatedSegments.reduce((sum, seg) => sum + seg.accumulatedMs, 0);
+        const targetMs = (session.selectedDurationMinutes ?? 0) * 60 * 1000;
+        const remainingMsOld = Math.max(0, targetMs - elapsedMs);
+
+        const newRate = getHourlyRate(d.type, count, settings);
+        // نفس التكلفة المتبقية لكن بسعر أعلى => وقت متبقي أقصر
+        const remainingMsNew = newRate > 0 ? remainingMsOld * (oldRate / newRate) : remainingMsOld;
+        const newSelectedDurationMinutes = (elapsedMs + remainingMsNew) / (60 * 1000);
+
+        const newSegment: PlaySegment = {
+          playersCount: count,
+          ratePerHour: newRate,
+          accumulatedMs: 0
+        };
+        updatedSegments.push(newSegment);
+
+        return {
+          ...d,
+          activeSession: {
+            ...session,
+            segments: updatedSegments,
+            lastTickTimestamp: now,
+            selectedDurationMinutes: newSelectedDurationMinutes
+          }
+        };
+      }
+      return d;
+    }));
+  };
+
   // E. Add product to session (Decreases inventory stock)
   const handleAddProductToSession = (deviceId: string, productId: string, quantity: number) => {
     const targetProduct = products.find(p => p.id === productId);
@@ -939,6 +991,7 @@ export default function App() {
             onPauseSession={handlePauseSession}
             onResumeSession={handleResumeSession}
             onChangePlayers={handleChangePlayers}
+            onChangePlayersReduceTime={handleChangePlayersReduceTime}
             onAddProductToSession={handleAddProductToSession}
             onRemoveProductFromSession={handleRemoveProductFromSession}
             onDecrementProductInSession={handleDecrementProductInSession}

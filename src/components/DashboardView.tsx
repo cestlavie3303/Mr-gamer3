@@ -48,6 +48,7 @@ interface DashboardViewProps {
   onPauseSession: (deviceId: string) => void;
   onResumeSession: (deviceId: string) => void;
   onChangePlayers: (deviceId: string, count: number) => void;
+  onChangePlayersReduceTime: (deviceId: string, count: number) => void;
   onAddProductToSession: (deviceId: string, productId: string, quantity: number) => void;
   onRemoveProductFromSession: (deviceId: string, productId: string) => void;
   onDecrementProductInSession: (deviceId: string, productId: string) => void;
@@ -68,6 +69,7 @@ export default function DashboardView({
   onPauseSession,
   onResumeSession,
   onChangePlayers,
+  onChangePlayersReduceTime,
   onAddProductToSession,
   onRemoveProductFromSession,
   onDecrementProductInSession,
@@ -89,6 +91,7 @@ export default function DashboardView({
   const [playersCount, setPlayersCount] = useState<number>(1);
   const [sessionType, setSessionType] = useState<SessionType>(SessionType.ONE_HOUR);
   const [customMinutes, setCustomMinutes] = useState<string>("");
+  const [playersIncreaseChoice, setPlayersIncreaseChoice] = useState<{ deviceId: string; num: number } | null>(null);
   const [paidAmount, setPaidAmount] = useState<string>("");
   const [isPlayPrepaid, setIsPlayPrepaid] = useState(false);
 
@@ -553,6 +556,7 @@ export default function DashboardView({
                     <label className="text-[11px] font-bold text-gray-600 block">حدد الوقت بالدقائق:</label>
                     <input
                       type="number"
+                      inputMode="numeric"
                       min="5"
                       max="1440"
                       value={customMinutes}
@@ -568,6 +572,7 @@ export default function DashboardView({
                     <label className="text-[11px] font-bold text-gray-600 block">المبلغ المدفوع (ل.س):</label>
                     <input
                       type="text"
+                      inputMode="decimal"
                       value={paidAmount}
                       onChange={(e) => setPaidAmount(e.target.value)}
                       className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-hidden font-mono"
@@ -829,7 +834,7 @@ export default function DashboardView({
                   </div>
 
                   {/* 2. Modify Players Count ON THE FLY (Without Retroactivity!) */}
-                  <div className="space-y-2.5 border-t border-gray-100 pt-4">
+                  <div className="space-y-2.5 border-t border-gray-100 pt-4 relative">
                     <h4 className="text-xs font-bold text-gray-700">تعديل عدد اللاعبين (بدون أثر رجعي)</h4>
                     <div className="grid grid-cols-4 gap-2">
                       {[1, 2, 3, 4].map((num) => (
@@ -837,7 +842,12 @@ export default function DashboardView({
                           key={num}
                           type="button"
                           onClick={() => {
-                            if (num !== currentPlayersCount) {
+                            if (num === currentPlayersCount) return;
+                            const hasFixedDuration = (session.selectedDurationMinutes ?? 0) > 0;
+                            if (num > currentPlayersCount && hasFixedDuration) {
+                              // زيادة عدد اللاعبين على جلسة بمدة محددة: اسأل المستخدم عن طريقة التعامل مع فرق السعر
+                              setPlayersIncreaseChoice({ deviceId: liveSelectedDevice.id, num });
+                            } else {
                               onChangePlayers(liveSelectedDevice.id, num);
                             }
                           }}
@@ -851,6 +861,42 @@ export default function DashboardView({
                         </button>
                       ))}
                     </div>
+
+                    {/* Popup: choose how to handle the price increase from adding more players */}
+                    {playersIncreaseChoice && playersIncreaseChoice.deviceId === liveSelectedDevice.id && (
+                      <div className="absolute inset-x-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-lg p-3 space-y-2">
+                        <p className="text-[11px] font-bold text-gray-700 text-center">
+                          زيادة اللاعبين لـ {playersIncreaseChoice.num} رح تزيد سعر الساعة، كيف بدك تتعامل مع الفرق؟
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onChangePlayers(playersIncreaseChoice.deviceId, playersIncreaseChoice.num);
+                            setPlayersIncreaseChoice(null);
+                          }}
+                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded-lg transition cursor-pointer"
+                        >
+                          زيادة السعر (نفس الوقت المتبقي)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onChangePlayersReduceTime(playersIncreaseChoice.deviceId, playersIncreaseChoice.num);
+                            setPlayersIncreaseChoice(null);
+                          }}
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 rounded-lg transition cursor-pointer"
+                        >
+                          تقليل الوقت المتبقي (نفس السعر)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPlayersIncreaseChoice(null)}
+                          className="w-full text-gray-500 text-[11px] font-bold py-1.5 rounded-lg hover:bg-gray-50 transition cursor-pointer"
+                        >
+                          إلغاء
+                        </button>
+                      </div>
+                    )}
 
                     <div className="flex justify-between items-center text-[10px] sm:text-[11px] text-gray-500 bg-gray-50 p-2 rounded-xl border border-gray-100">
                       <span>سعر الساعة الحالي لهذه الوضعية:</span>
@@ -1006,6 +1052,7 @@ export default function DashboardView({
                             <span className="text-[10px] sm:text-xs text-gray-500 font-bold shrink-0">دقائق:</span>
                             <input
                               type="number"
+                              inputMode="numeric"
                               min="5"
                               value={extendCustomMinutes}
                               onChange={(e) => setExtendCustomMinutes(e.target.value)}
@@ -1020,6 +1067,7 @@ export default function DashboardView({
                               <span className="text-[10px] sm:text-xs text-gray-500 font-bold shrink-0">المبلغ (ل.س):</span>
                               <input
                                 type="text"
+                                inputMode="decimal"
                                 value={extendAmount}
                                 onChange={(e) => setExtendAmount(e.target.value)}
                                 className="w-full text-center py-1 border-b border-gray-200 focus:border-indigo-500 outline-hidden font-mono text-sm"

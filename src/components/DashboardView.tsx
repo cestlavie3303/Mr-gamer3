@@ -844,8 +844,10 @@ export default function DashboardView({
                           onClick={() => {
                             if (num === currentPlayersCount) return;
                             const hasFixedDuration = (session.selectedDurationMinutes ?? 0) > 0;
-                            if (num > currentPlayersCount && hasFixedDuration) {
-                              // زيادة عدد اللاعبين على جلسة بمدة محددة: اسأل المستخدم عن طريقة التعامل مع فرق السعر
+                            const currentRate = getHourlyRate(liveSelectedDevice.type, currentPlayersCount, settings);
+                            const newRate = getHourlyRate(liveSelectedDevice.type, num, settings);
+                            if (newRate > currentRate && hasFixedDuration) {
+                              // السعر فعلياً رح يزيد على جلسة بمدة محددة: اسأل المستخدم عن طريقة التعامل مع الفرق
                               setPlayersIncreaseChoice({ deviceId: liveSelectedDevice.id, num });
                             } else {
                               onChangePlayers(liveSelectedDevice.id, num);

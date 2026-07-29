@@ -142,10 +142,15 @@ export default function App() {
     // Create the native notification channels for each sound preset
     ensureSessionEndChannels();
 
-    // Live clock
+    // Live clock (English digits, manually formatted for a stable, fixed-width display)
     const clockInterval = setInterval(() => {
       const now = new Date();
-      setCurrentTimeStr(now.toLocaleTimeString("ar-JO", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+      const hours24 = now.getHours();
+      const period = hours24 >= 12 ? "م" : "ص";
+      let hours12 = hours24 % 12;
+      if (hours12 === 0) hours12 = 12;
+      const pad = (n: number) => n.toString().padStart(2, "0");
+      setCurrentTimeStr(`${pad(hours12)}:${pad(now.getMinutes())}:${pad(now.getSeconds())} ${period}`);
     }, 1000);
 
     return () => clearInterval(clockInterval);
@@ -970,9 +975,9 @@ export default function App() {
 
           {/* Clock & active date */}
           <div className="flex items-center gap-4 text-xs font-mono">
-            <div className="bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg flex items-center gap-1 shrink-0 text-amber-400 font-black">
-              <Clock className="w-3.5 h-3.5 text-amber-400" />
-              {currentTimeStr || "00:00:00"}
+            <div className="bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg flex items-center gap-1 shrink-0 text-amber-400 font-black w-[92px] justify-center tabular-nums">
+              <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="inline-block">{currentTimeStr || "00:00:00 ص"}</span>
             </div>
           </div>
 

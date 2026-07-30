@@ -33,7 +33,7 @@ export interface ReportExportData {
  * يختار المستخدم أين يريد حفظه (الملفات، درايف، واتساب...).
  * على المتصفح العادي (أثناء التطوير) يتم تنزيله مباشرة كملف تحميل عادي.
  */
-async function saveOrShareFile(base64Data: string, fileName: string, mimeType: string) {
+export async function saveOrShareFile(base64Data: string, fileName: string, mimeType: string) {
   if (Capacitor.isNativePlatform()) {
     const result = await Filesystem.writeFile({
       path: fileName,
@@ -41,20 +41,10 @@ async function saveOrShareFile(base64Data: string, fileName: string, mimeType: s
       directory: Directory.Cache
     });
 
-    try {
-      // محاولة فتح الملف مباشرة
-      const { FileOpener } = await import("@capacitor-community/file-opener");
-      await FileOpener.open({
-        filePath: result.uri,
-        contentType: mimeType
-      });
-    } catch (e) {
-      // في حال فشل الفتح (مثلاً لا يوجد تطبيق يدعم الصيغة)، نعود لخيار المشاركة
-      await Share.share({
-        title: fileName,
-        url: result.uri
-      });
-    }
+    await Share.share({
+      title: fileName,
+      url: result.uri
+    });
   } else {
     const link = document.createElement("a");
     link.href = `data:${mimeType};base64,${base64Data}`;
@@ -78,7 +68,7 @@ export async function exportReportToExcel(data: ReportExportData, fileNamePrefix
     [`الفترة: ${data.periodLabel}`],
     [`تاريخ الإصدار: ${data.generatedAt}`],
     [],
-    ["البند", "المبلغ (ل.س)"],
+    ["البند", "المبلغ (د.أ)"],
     ["إيرادات الألعاب", data.totalPlayRevenue],
     ["إيرادات المنتجات", data.totalProductRevenue],
     ["إجمالي الدخل", data.grossRevenue],
@@ -91,7 +81,7 @@ export async function exportReportToExcel(data: ReportExportData, fileNamePrefix
 
   // ---- ورقة 2: أداء الأجهزة ----
   const devicesSheetData = [
-    ["اسم الجهاز", "الوقت الكلي الملعوب (دقيقة)", "الإيراد (ل.س)"],
+    ["اسم الجهاز", "الوقت الكلي الملعوب (دقيقة)", "الإيراد (د.أ)"],
     ...data.devices.map(d => [d.name, Math.round(d.duration), d.revenue])
   ];
   const devicesSheet = XLSX.utils.aoa_to_sheet(devicesSheetData);
@@ -99,7 +89,7 @@ export async function exportReportToExcel(data: ReportExportData, fileNamePrefix
 
   // ---- ورقة 3: المنتجات الأكثر مبيعاً ----
   const productsSheetData = [
-    ["اسم المنتج", "الكمية المباعة", "إجمالي المبيع (ل.س)"],
+    ["اسم المنتج", "الكمية المباعة", "إجمالي المبيع (د.أ)"],
     ...data.products.map(p => [p.name, p.qty, p.revenue])
   ];
   const productsSheet = XLSX.utils.aoa_to_sheet(productsSheetData);
@@ -135,17 +125,7 @@ export async function exportReportToPdf(elementId: string, fileNamePrefix: strin
   const canvas = await html2canvas(element, {
     scale: 2,
     useCORS: true,
-    allowTaint: true,
-    backgroundColor: "#ffffff",
-    logging: false,
-    onclone: (clonedDoc) => {
-      // إزالة فئة الوضع الليلي من النسخة المستنسخة لضمان التقاط الألوان الأصلية
-      clonedDoc.documentElement.classList.remove("dark");
-      const template = clonedDoc.getElementById(elementId);
-      if (template) {
-        template.style.color = "#000000";
-      }
-    }
+    backgroundColor: "#ffffff"
   });
 
   const imgData = canvas.toDataURL("image/png");

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Settings } from "../types";
-import { AppState, importBackup, exportBackup } from "../utils/store";
+import { AppState, exportBackup, mergeBackup } from "../utils/store";
+import { saveOrShareFile } from "../utils/exportReports";
 import { 
   Settings as SettingsIcon, 
   DollarSign, 
@@ -16,7 +17,8 @@ import {
   HelpCircle,
   VolumeX,
   FileText,
-  Moon
+  Moon,
+  Loader2
 } from "lucide-react";
 import { playAlertTone } from "../utils/calculations";
 import { saveCustomDeviceSound, hasCustomDeviceSound, CUSTOM_SOUND_KEY } from "../utils/notifications";
@@ -119,20 +121,25 @@ export default function SettingsView({
     e.target.value = ""; // allow re-selecting the same file later
   };
 
-  // Export database to JSON file
-  const handleExportDB = () => {
-    const backupJson = exportBackup(fullState);
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(backupJson);
-    const downloadAnchor = document.createElement("a");
-    const today = new Date().toISOString().substring(0, 10);
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `cyber_cafe_backup_${today}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+  // Export database and share it directly (Bluetooth / Nearby Share / WiFi) in one tap
+  const [isExportingDB, setIsExportingDB] = useState(false);
+  const handleExportDB = async () => {
+    if (isExportingDB) return;
+    setIsExportingDB(true);
+    try {
+      const backupJson = exportBackup(fullState);
+      const base64 = btoa(unescape(encodeURIComponent(backupJson)));
+      const today = new Date().toISOString().substring(0, 10);
+      await saveOrShareFile(base64, `mrgamer_backup_${today}.json`, "application/json");
+    } catch (error) {
+      console.error("Export failed:", error);
+      alert("تعذّر تصدير النسخة الاحتياطية، حاول مرة أخرى.");
+    } finally {
+      setIsExportingDB(false);
+    }
   };
 
-  // Import database from JSON file
+  // Import database from another device's backup file, safely merged
   const handleImportDB = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileReader = new FileReader();
     const files = e.target.files;
@@ -142,16 +149,39 @@ export default function SettingsView({
       const resultString = event.target?.result as string;
       if (!resultString) return;
 
-      const validatedState = importBackup(resultString);
-      if (validatedState) {
-        if (confirm("تحذير: سيؤدي استيراد هذا الملف إلى استبدال كافة البيانات الحالية (الأجهزة، المخزن، السجلات، الإعدادات). هل تريد المتابعة؟")) {
-          onImportState(validatedState);
-          alert("تم استيراد قاعدة البيانات بنجاح وتحديث كافة الأنظمة!");
-          window.location.reload(); // refresh page to clear states
+      const result = mergeBackup(resultString, fullState);
+
+      if (!result.success) {
+        alert(result.error || "ملف النسخة الاحتياطية غير صالح أو معطوب!");
+        return;
+      }
+
+      if (result.isIncomingOlder) {
+        // الملف أقدم: تم دمج السجلات والمصاريف الجديدة منه بأمان تلقائياً بدون أي مخاطرة
+        onImportState(result.mergedState);
+
+        const forceOverwrite = confirm(
+          "⚠️ الملف الذي استوردته أقدم من بيانات هذا الجهاز.\n\n" +
+          "تم دمج أي سجلات أو مصاريف جديدة منه بأمان بدون أي فقدان بيانات.\n\n" +
+          "هل تريد أيضاً استبدال حالة الأجهزة والمخزون والإعدادات الحالية بما هو موجود في هذا الملف القديم؟ " +
+          "(غير موصى به عادة، وقد يفقدك تحديثات أحدث على هذا الجهاز)"
+        );
+
+        if (forceOverwrite) {
+          const forcedResult = mergeBackup(resultString, fullState, true);
+          if (forcedResult.success && forcedResult.mergedState) {
+            onImportState(forcedResult.mergedState);
+            alert("تم استبدال الحالة الحالية بالكامل بما في الملف المستورد.");
+          }
+        } else {
+          alert("تم تحديث السجلات والمصاريف الجديدة فقط. الحالة الحالية (الأجهزة/المخزون/الإعدادات) لم تتغير.");
         }
       } else {
-        alert("ملف النسخ الاحتياطي غير صالح أو معطوب!");
+        onImportState(result.mergedState);
+        alert("تم استيراد ومزامنة البيانات بنجاح!");
       }
+
+      window.location.reload();
     };
     fileReader.readAsText(files[0]);
   };
@@ -552,13 +582,13 @@ export default function SettingsView({
                 <div className="flex gap-2 items-start">
                   <Smartphone className="w-4.5 h-4.5 text-indigo-600 shrink-0 mt-0.5" />
                   <p className="text-[11px]">
-                    <strong>التنسيق بين موظفي المحل:</strong> يمكن للموظف الأول تصدير ملف قاعدة البيانات كنسخة احتياطية وإرسالها للموظف الثاني عبر البلوتوث أو شبكة الوايفاي التي يبثها لابتوب ويندوز 7 بالمحل.
+                    <strong>التنسيق بين موظفي المحل:</strong> يمكن للموظف الأول الضغط على زر "مشاركة نسخة احتياطية" وإرسالها مباشرة للموظف الثاني عبر خاصية المشاركة القريبة (Nearby Share) أو البلوتوث، بدون أي إنترنت.
                   </p>
                 </div>
                 <div className="flex gap-2 items-start border-t border-gray-100 pt-2">
                   <Laptop className="w-4.5 h-4.5 text-indigo-600 shrink-0 mt-0.5" />
                   <p className="text-[11px]">
-                    <strong>تحديث البيانات:</strong> الموظف الثاني يقوم باستيراد ملف النسخة الاحتياطية هنا، وبذلك تتطابق قواعد بيانات الجوالين والعمليات التاريخية بالكامل بدون الحاجة لإنترنت!
+                    <strong>تحديث البيانات:</strong> الموظف الثاني يستورد الملف هنا، وتتطابق بيانات الجوالين تلقائياً. السجلات والمصاريف تُدمج دائماً بأمان تام (بدون حذف)، والنظام يحذّرك تلقائياً إذا حاولت استيراد نسخة أقدم من بيانات جهازك الحالية.
                   </p>
                 </div>
               </div>
@@ -569,10 +599,15 @@ export default function SettingsView({
             {/* Export DB Button */}
             <button
               onClick={handleExportDB}
-              className="w-full bg-gray-900 hover:bg-gray-800 text-white font-bold text-xs py-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+              disabled={isExportingDB}
+              className="w-full bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-bold text-xs py-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Download className="w-4 h-4 text-emerald-400" />
-              تصدير نسخة احتياطية (تحميل ملف البيانات)
+              {isExportingDB ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 text-emerald-400" />
+              )}
+              مشاركة نسخة احتياطية (بلوتوث / قريب مني)
             </button>
 
             {/* Import DB Button */}

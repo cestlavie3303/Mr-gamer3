@@ -96,6 +96,17 @@ export function loadAppState(): AppState {
   }
 }
 
+const LAST_MODIFIED_KEY = "cyber_last_modified";
+
+/**
+ * الوقت (بالمللي ثانية) الذي تم فيه آخر تعديل فعلي على بيانات هذا الجهاز.
+ * يُستخدم للمقارنة عند استيراد نسخة من جهاز آخر، لمعرفة أي البيانات أحدث فعلاً.
+ */
+export function getLastModifiedTimestamp(): number {
+  const raw = localStorage.getItem(LAST_MODIFIED_KEY);
+  return raw ? parseInt(raw, 10) : 0;
+}
+
 export function saveAppState(state: AppState) {
   try {
     localStorage.setItem("cyber_devices", JSON.stringify(state.devices));
@@ -104,6 +115,7 @@ export function saveAppState(state: AppState) {
     localStorage.setItem("cyber_logs", JSON.stringify(state.logs));
     localStorage.setItem("cyber_settings", JSON.stringify(state.settings));
     localStorage.setItem("cyber_shift", JSON.stringify(state.shift));
+    localStorage.setItem(LAST_MODIFIED_KEY, Date.now().toString());
   } catch (err) {
     console.error("Failed to save state to localStorage:", err);
   }
@@ -122,7 +134,7 @@ export function exportBackup(state: AppState): string {
 }
 
 /**
- * Validates and imports backup data
+ * Validates and imports backup data (legacy - kept for backward compatibility)
  */
 export function importBackup(jsonString: string): AppState | null {
   try {
@@ -134,4 +146,95 @@ export function importBackup(jsonString: string): AppState | null {
     console.error("Invalid backup file structure", e);
   }
   return null;
+}
+
+export interface MergeResult {
+  success: boolean;
+  error?: string;
+  isIncomingOlder?: boolean;
+  incomingTimestamp?: number;
+  currentTimestamp?: number;
+  mergedState?: AppState;
+}
+
+/**
+ * يدمج أي مجموعتين من السجلات ذات معرّف فريد (id) بالإضافة فقط، بدون حذف أو استبدال أي سجل موجود.
+ * آمن تماماً بغض النظر عن اتجاه النقل: أسوأ احتمال أن لا يُضاف شيء جديد، لكن لا يوجد أي احتمال لفقدان بيانات.
+ */
+function mergeById<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
+  const map = new Map<string, T>();
+  existing.forEach(item => map.set(item.id, item));
+  incoming.forEach(item => {
+    if (!map.has(item.id)) map.set(item.id, item);
+  });
+  return Array.from(map.values());
+}
+
+/**
+ * يدمج نسخة واردة من جهاز آخر مع الحالة الحالية على هذا الجهاز، بأمان تام:
+ *
+ * - السجلات والمصاريف (بيانات تاريخية لا تتغير بعد إنشائها): تُدمج بالإضافة فقط اعتماداً على
+ *   المعرّف الفريد لكل سجل. تُدمج دائماً مهما كان اتجاه النقل، فلا يوجد أي خطر لفقدان بيانات.
+ *
+ * - الأجهزة والمخزون والإعدادات وحالة الوردية (حالة حيّة متغيّرة): تُستبدل بالكامل بالنسخة
+ *   الواردة، لكن فقط إذا كانت أحدث فعلياً من آخر تعديل محلي على هذا الجهاز. إن كانت الواردة
+ *   أقدم، يتم إرجاع isIncomingOlder=true بدلاً من التنفيذ مباشرة، حتى تسأل الواجهة المستخدم
+ *   تأكيداً صريحاً قبل الكتابة فوق بيانات أحدث بالخطأ.
+ */
+export function mergeBackup(
+  jsonString: string,
+  currentState: AppState,
+  forceOverwriteLiveState: boolean = false
+): MergeResult {
+  let parsed: any;
+  try {
+    parsed = JSON.parse(jsonString);
+  } catch (e) {
+    return { success: false, error: "الملف تالف أو غير قابل للقراءة." };
+  }
+
+  if (!parsed || !parsed.data || !Array.isArray(parsed.data.devices) || !Array.isArray(parsed.data.products)) {
+    return { success: false, error: "بنية الملف غير صحيحة، تأكد أنه ملف نسخة احتياطية صادر من التطبيق." };
+  }
+
+  const incoming: AppState = parsed.data;
+  const incomingTimestamp: number = parsed.exportTimestamp || 0;
+  const currentTimestamp = getLastModifiedTimestamp();
+
+  const mergedLogs = mergeById(currentState.logs, incoming.logs || []);
+  const mergedExpenses = mergeById(currentState.expenses, incoming.expenses || []);
+
+  const isIncomingOlder = incomingTimestamp < currentTimestamp;
+
+  if (isIncomingOlder && !forceOverwriteLiveState) {
+    // الملف الوارد أقدم من بيانات هذا الجهاز: ندمج السجلات التاريخية بأمان فقط،
+    // ونترك الحالة الحيّة (الأجهزة/المخزون/الإعدادات) كما هي دون لمسها
+    return {
+      success: true,
+      isIncomingOlder: true,
+      incomingTimestamp,
+      currentTimestamp,
+      mergedState: {
+        ...currentState,
+        logs: mergedLogs,
+        expenses: mergedExpenses,
+      }
+    };
+  }
+
+  // الملف الوارد أحدث (أو تم تأكيد التجاوز يدوياً): استبدل الحالة الحيّة بالكامل
+  return {
+    success: true,
+    isIncomingOlder: false,
+    incomingTimestamp,
+    currentTimestamp,
+    mergedState: {
+      devices: incoming.devices,
+      products: incoming.products,
+      settings: incoming.settings,
+      shift: incoming.shift,
+      logs: mergedLogs,
+      expenses: mergedExpenses,
+    }
+  };
 }

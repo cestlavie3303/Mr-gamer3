@@ -3,6 +3,8 @@ package com.mrgamer.app;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSObject;
@@ -50,7 +52,7 @@ public class NearbySyncPlugin extends Plugin {
     private String outgoingData;
     private long outgoingTimestamp = 0;
     private String connectedEndpointId;
-    private boolean isRoleDetermined = false;
+    private boolean isSendingFullData = false;
 
     private static String[] requiredPermissions() {
         List<String> perms = new ArrayList<>();
@@ -109,23 +111,35 @@ public class NearbySyncPlugin extends Plugin {
                 if (bytes == null) return;
                 String receivedStr = new String(bytes, StandardCharsets.UTF_8);
 
-                // فحص هل الرسالة المستقبلة هي تاريخ أم ملف بيانات كامل
                 if (receivedStr.startsWith("TIME:")) {
-                    long incomingTime = Long.parseLong(receivedStr.replace("TIME:", "").trim());
-                    handleTimestampExchange(incomingTime);
+                    try {
+                        long incomingTime = Long.parseLong(receivedStr.replace("TIME:", "").trim());
+                        handleTimestampExchange(incomingTime);
+                    } catch (Exception e) {
+                        emitStatus("error", "خطأ في قراءة تاريخ المزامنة");
+                    }
                 } else {
                     JSObject data = new JSObject();
                     data.put("data", receivedStr);
                     notifyListeners("dataReceived", data);
                     emitStatus("received", "تم استلام النسخة الأحدث بنجاح");
+                    
+                    // تأخير إغلاق الاتصال بعد الاستلام لضمان المعالجة
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> disconnectAndClean(), 1500);
                 }
             }
         }
 
         @Override
         public void onPayloadTransferUpdate(String endpointId, PayloadTransferUpdate update) {
-            if (update.getStatus() == PayloadTransferUpdate.Status.SUCCESS && isRoleDetermined) {
-                emitStatus("sent", "تم إرسال البيانات الحديثة للجهاز الآخر بنجاح");
+            if (update.getStatus() == PayloadTransferUpdate.Status.SUCCESS) {
+                if (isSendingFullData) {
+                    emitStatus("sent", "تم إرسال البيانات الحديثة بنجاح");
+                    isSendingFullData = false;
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> disconnectAndClean(), 1500);
+                }
+            } else if (update.getStatus() == PayloadTransferUpdate.Status.FAILURE) {
+                emitStatus("error", "فشل نقل الملف أثناء الإرسال");
             }
         }
     };
@@ -133,15 +147,15 @@ public class NearbySyncPlugin extends Plugin {
     private void handleTimestampExchange(long incomingTime) {
         if (outgoingTimestamp > incomingTime) {
             // بياناتنا أحدث -> نرسل ملفنا الكامل
-            isRoleDetermined = true;
+            emitStatus("sending", "بياناتنا هي الأحدث، جاري إرسالها...");
             sendFullData();
         } else if (outgoingTimestamp < incomingTime) {
             // بيانات الجهاز الآخر أحدث -> ننتظر استلام ملفه
-            isRoleDetermined = true;
             emitStatus("receiving", "بيانات الجهاز الآخر أحدث، جاري الاستلام...");
         } else {
             // البيانات متطابقة تماماً
             emitStatus("upToDate", "البيانات متطابقة تماماً بين الجهازين");
+            new Handler(Looper.getMainLooper()).postDelayed(() -> disconnectAndClean(), 1000);
         }
     }
 
@@ -155,7 +169,7 @@ public class NearbySyncPlugin extends Plugin {
         final String deviceName = call.getString("deviceName", "MrGamer Device");
         outgoingData = call.getString("backupJson", "");
         outgoingTimestamp = call.getLong("timestamp", System.currentTimeMillis());
-        isRoleDetermined = false;
+        isSendingFullData = false;
         connectedEndpointId = null;
 
         connectionsClient = Nearby.getConnectionsClient(getContext());
@@ -174,7 +188,9 @@ public class NearbySyncPlugin extends Plugin {
                     emitStatus("connected", "تم الاتصال، جاري مقارنة التواريخ...");
                     connectionsClient.stopAdvertising();
                     connectionsClient.stopDiscovery();
-                    sendTimestampOnly();
+                    
+                    // إرسال التاريخ بعد الاتصال بوقت قصير لضمان جاهزية القناة
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> sendTimestampOnly(), 500);
                 } else {
                     emitStatus("error", "فشل الاتصال بالجهاز الآخر");
                 }
@@ -182,7 +198,8 @@ public class NearbySyncPlugin extends Plugin {
 
             @Override
             public void onDisconnected(String endpointId) {
-                emitStatus("disconnected", "انقطع الاتصال");
+                connectedEndpointId = null;
+                emitStatus("disconnected", "تم إنهاء الاتصال بنجاح");
             }
         };
 
@@ -220,19 +237,27 @@ public class NearbySyncPlugin extends Plugin {
 
     private void sendFullData() {
         if (connectedEndpointId == null || outgoingData == null) return;
+        isSendingFullData = true;
         Payload payload = Payload.fromBytes(outgoingData.getBytes(StandardCharsets.UTF_8));
         connectionsClient.sendPayload(connectedEndpointId, payload);
-        emitStatus("sending", "بياناتنا هي الأحدث، جاري إرسالها...");
+    }
+
+    private void disconnectAndClean() {
+        if (connectionsClient != null) {
+            connectionsClient.stopAdvertising();
+            connectionsClient.stopDiscovery();
+            if (connectedEndpointId != null) {
+                connectionsClient.disconnectFromEndpoint(connectedEndpointId);
+            }
+            connectionsClient.stopAllEndpoints();
+        }
+        connectedEndpointId = null;
+        isSendingFullData = false;
     }
 
     @PluginMethod
     public void stopSync(PluginCall call) {
-        if (connectionsClient != null) {
-            connectionsClient.stopAdvertising();
-            connectionsClient.stopDiscovery();
-            connectionsClient.stopAllEndpoints();
-        }
-        connectedEndpointId = null;
+        disconnectAndClean();
         call.resolve();
     }
 

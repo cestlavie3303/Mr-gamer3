@@ -34,10 +34,10 @@ import java.util.List;
 @CapacitorPlugin(
     name = "NearbySync",
     permissions = {
+        @Permission(strings = { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION }, alias = "location"),
         @Permission(strings = { Manifest.permission.BLUETOOTH_ADVERTISE }, alias = "btAdvertise"),
         @Permission(strings = { Manifest.permission.BLUETOOTH_CONNECT }, alias = "btConnect"),
         @Permission(strings = { Manifest.permission.BLUETOOTH_SCAN }, alias = "btScan"),
-        @Permission(strings = { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION }, alias = "location"),
         @Permission(strings = { Manifest.permission.NEARBY_WIFI_DEVICES }, alias = "wifi")
     }
 )
@@ -53,15 +53,14 @@ public class NearbySyncPlugin extends Plugin {
 
     private static String[] requiredPermissions() {
         List<String> perms = new ArrayList<>();
-        // الموقع مطلوب في جميع إصدارات أندرويد لـ Nearby Connections
         perms.add(Manifest.permission.ACCESS_FINE_LOCATION);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // Android 12+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             perms.add(Manifest.permission.BLUETOOTH_ADVERTISE);
             perms.add(Manifest.permission.BLUETOOTH_CONNECT);
             perms.add(Manifest.permission.BLUETOOTH_SCAN);
         }
-        if (Build.VERSION.SDK_INT >= 33) { // Android 13+
+        if (Build.VERSION.SDK_INT >= 33) {
             perms.add(Manifest.permission.NEARBY_WIFI_DEVICES);
         }
         return perms.toArray(new String[0]);
@@ -173,7 +172,7 @@ public class NearbySyncPlugin extends Plugin {
 
             @Override
             public void onEndpointLost(String endpointId) {
-                // تجاهل
+                // ignore
             }
         };
 

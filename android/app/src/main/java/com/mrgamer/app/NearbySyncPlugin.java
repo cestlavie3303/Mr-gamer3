@@ -3,7 +3,6 @@ package com.mrgamer.app;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Build;
-import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSObject;
@@ -11,6 +10,8 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import com.google.android.gms.nearby.Nearby;
 import com.google.android.gms.nearby.connection.AdvertisingOptions;
@@ -33,16 +34,21 @@ import java.util.List;
 /**
  * مزامنة مباشرة بين جهازين قريبين من بعض (بلوتوث / واي فاي مباشر) بدون أي إنترنت،
  * باستخدام مكتبة Nearby Connections الرسمية من Google (نفس التقنية وراء Nearby Share).
- *
- * كل جهاز يبحث عن الجهاز الآخر ويعلن عن نفسه بنفس الوقت (وضع مزدوج)، وأول اتصال ناجح
- * بينهم بيبلش تلقائيًا بتبادل نسخة قاعدة البيانات (JSON) بالاتجاهين.
  */
-@CapacitorPlugin(name = "NearbySync")
+@CapacitorPlugin(
+    name = "NearbySync",
+    permissions = {
+        @Permission(strings = { Manifest.permission.BLUETOOTH_ADVERTISE }, alias = "btAdvertise"),
+        @Permission(strings = { Manifest.permission.BLUETOOTH_CONNECT }, alias = "btConnect"),
+        @Permission(strings = { Manifest.permission.BLUETOOTH_SCAN }, alias = "btScan"),
+        @Permission(strings = { Manifest.permission.ACCESS_FINE_LOCATION }, alias = "location"),
+        @Permission(strings = { Manifest.permission.NEARBY_WIFI_DEVICES }, alias = "wifi")
+    }
+)
 public class NearbySyncPlugin extends Plugin {
 
     private static final String SERVICE_ID = "com.mrgamer.app.SYNC_SERVICE";
     private static final Strategy STRATEGY = Strategy.P2P_POINT_TO_POINT;
-    private static final int PERMISSION_REQUEST_CODE = 5501;
 
     private ConnectionsClient connectionsClient;
     private String outgoingData;
@@ -88,20 +94,14 @@ public class NearbySyncPlugin extends Plugin {
             call.resolve(ret);
             return;
         }
-        saveCall(call);
-        ActivityCompat.requestPermissions(getActivity(), requiredPermissions(), PERMISSION_REQUEST_CODE);
+        requestPermissionLauncher.launch(call);
     }
 
-    @Override
-    protected void handleOnRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.handleOnRequestPermissionsResult(requestCode, permissions, grantResults);
-        PluginCall savedCall = getSavedCall();
-        if (savedCall == null || requestCode != PERMISSION_REQUEST_CODE) return;
-
+    @PermissionCallback
+    private void permissionCallback(PluginCall call) {
         JSObject ret = new JSObject();
         ret.put("granted", hasAllPermissions());
-        savedCall.resolve(ret);
-        freeSavedCall();
+        call.resolve(ret);
     }
 
     private final PayloadCallback payloadCallback = new PayloadCallback() {

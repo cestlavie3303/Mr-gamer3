@@ -31,17 +31,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * مزامنة مباشرة بين جهازين قريبين من بعض (بلوتوث / واي فاي مباشر) بدون أي إنترنت،
- * باستخدام مكتبة Nearby Connections الرسمية من Google (نفس التقنية وراء Nearby Share).
- */
 @CapacitorPlugin(
     name = "NearbySync",
     permissions = {
         @Permission(strings = { Manifest.permission.BLUETOOTH_ADVERTISE }, alias = "btAdvertise"),
         @Permission(strings = { Manifest.permission.BLUETOOTH_CONNECT }, alias = "btConnect"),
         @Permission(strings = { Manifest.permission.BLUETOOTH_SCAN }, alias = "btScan"),
-        @Permission(strings = { Manifest.permission.ACCESS_FINE_LOCATION }, alias = "location"),
+        @Permission(strings = { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION }, alias = "location"),
         @Permission(strings = { Manifest.permission.NEARBY_WIFI_DEVICES }, alias = "wifi")
     }
 )
@@ -57,14 +53,15 @@ public class NearbySyncPlugin extends Plugin {
 
     private static String[] requiredPermissions() {
         List<String> perms = new ArrayList<>();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // Android 12+ (API 31)
+        // الموقع مطلوب في جميع إصدارات أندرويد لـ Nearby Connections
+        perms.add(Manifest.permission.ACCESS_FINE_LOCATION);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // Android 12+
             perms.add(Manifest.permission.BLUETOOTH_ADVERTISE);
             perms.add(Manifest.permission.BLUETOOTH_CONNECT);
             perms.add(Manifest.permission.BLUETOOTH_SCAN);
-        } else {
-            perms.add(Manifest.permission.ACCESS_FINE_LOCATION);
         }
-        if (Build.VERSION.SDK_INT >= 33) { // Android 13+ (API 33)
+        if (Build.VERSION.SDK_INT >= 33) { // Android 13+
             perms.add(Manifest.permission.NEARBY_WIFI_DEVICES);
         }
         return perms.toArray(new String[0]);
@@ -176,7 +173,7 @@ public class NearbySyncPlugin extends Plugin {
 
             @Override
             public void onEndpointLost(String endpointId) {
-                // تجاهل: الجهاز غاب من نطاق البحث
+                // تجاهل
             }
         };
 

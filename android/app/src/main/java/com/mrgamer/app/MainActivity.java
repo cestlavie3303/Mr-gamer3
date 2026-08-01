@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ActiveDevicesPlugin.class);
+        registerPlugin(NearbySyncPlugin.class);
         super.onCreate(savedInstanceState);
         makeFullScreen();
     }

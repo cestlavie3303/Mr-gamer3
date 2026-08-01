@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { Settings } from "../types";
 import { AppState, exportBackup, mergeBackup } from "../utils/store";
 import { saveOrShareFile } from "../utils/exportReports";
+import { ensureSyncPermissions, startNearbySync, stopNearbySync, SyncStatusEvent, SyncDataEvent } from "../utils/nearbySync";
 import { 
   Settings as SettingsIcon, 
   DollarSign, 
@@ -18,7 +19,9 @@ import {
   VolumeX,
   FileText,
   Moon,
-  Loader2
+  Loader2,
+  Bluetooth,
+  X
 } from "lucide-react";
 import { playAlertTone } from "../utils/calculations";
 import { saveCustomDeviceSound, hasCustomDeviceSound, CUSTOM_SOUND_KEY } from "../utils/notifications";
@@ -129,8 +132,16 @@ export default function SettingsView({
     try {
       const backupJson = exportBackup(fullState);
       const base64 = btoa(unescape(encodeURIComponent(backupJson)));
-      const today = new Date().toISOString().substring(0, 10);
-      await saveOrShareFile(base64, `mrgamer_backup_${today}.json`, "application/json");
+
+      // اسم واضح ومرتب زمنياً (تاريخ + وقت) حتى تكون أحدث نسخة دائماً هي الأسهل تمييزاً
+      // عند فرز الملفات حسب "الأحدث أولاً" في أي مدير ملفات
+      const now = new Date();
+      const pad = (n: number) => n.toString().padStart(2, "0");
+      const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const timeStr = `${pad(now.getHours())}-${pad(now.getMinutes())}`;
+      const fileName = `MrGamer-Backup-${dateStr}_${timeStr}.json`;
+
+      await saveOrShareFile(base64, fileName, "application/json");
     } catch (error) {
       console.error("Export failed:", error);
       alert("تعذّر تصدير النسخة الاحتياطية، حاول مرة أخرى.");
@@ -184,6 +195,80 @@ export default function SettingsView({
       window.location.reload();
     };
     fileReader.readAsText(files[0]);
+  };
+
+  // Direct device-to-device sync (Nearby Connections - Bluetooth/WiFi Direct, no files, no internet)
+  const [isNearbySyncing, setIsNearbySyncing] = useState(false);
+  const [nearbySyncMsg, setNearbySyncMsg] = useState("");
+  const nearbySyncCleanupRef = useRef<(() => void) | null>(null);
+
+  const handleStopNearbySync = async (finalMessage?: string) => {
+    if (nearbySyncCleanupRef.current) {
+      await nearbySyncCleanupRef.current();
+      nearbySyncCleanupRef.current = null;
+    }
+    if (finalMessage) {
+      setNearbySyncMsg(finalMessage);
+      setTimeout(() => {
+        setIsNearbySyncing(false);
+        setNearbySyncMsg("");
+      }, 2000);
+    } else {
+      setIsNearbySyncing(false);
+      setNearbySyncMsg("");
+    }
+  };
+
+  const handleStartNearbySync = async () => {
+    const granted = await ensureSyncPermissions();
+    if (!granted) {
+      alert("لازم توافق على صلاحيات البلوتوث/الاتصال القريب لتشغيل هذه الميزة.");
+      return;
+    }
+
+    setIsNearbySyncing(true);
+    setNearbySyncMsg("جاري البحث عن جهاز قريب... تأكد أن الموظف الآخر ضغط نفس الزر على جهازه.");
+
+    const backupJson = exportBackup(fullState);
+
+    const handleStatus = (event: SyncStatusEvent) => {
+      setNearbySyncMsg(event.message);
+      if (event.status === "error") {
+        handleStopNearbySync(event.message);
+      }
+    };
+
+    const handleDataReceived = (event: SyncDataEvent) => {
+      const result = mergeBackup(event.data, fullState);
+
+      if (!result.success) {
+        handleStopNearbySync(result.error || "تعذّر دمج البيانات المستلمة.");
+        return;
+      }
+
+      if (result.isIncomingOlder) {
+        onImportState(result.mergedState);
+        const forceOverwrite = confirm(
+          "⚠️ بيانات الجهاز الآخر أقدم من بيانات هذا الجهاز.\n\n" +
+          "تم دمج أي سجلات أو مصاريف جديدة منه بأمان.\n\n" +
+          "هل تريد أيضاً استبدال حالة الأجهزة والمخزون والإعدادات الحالية بما هو موجود بالجهاز الآخر؟"
+        );
+        if (forceOverwrite) {
+          const forced = mergeBackup(event.data, fullState, true);
+          if (forced.success && forced.mergedState) {
+            onImportState(forced.mergedState);
+          }
+        }
+      } else {
+        onImportState(result.mergedState);
+      }
+
+      handleStopNearbySync("تمت المزامنة بنجاح ✅");
+      setTimeout(() => window.location.reload(), 2000);
+    };
+
+    const cleanup = await startNearbySync("MrGamer", backupJson, handleStatus, handleDataReceived);
+    nearbySyncCleanupRef.current = cleanup;
   };
 
   return (
@@ -596,6 +681,39 @@ export default function SettingsView({
           </div>
 
           <div className="space-y-2.5 border-t border-gray-50 pt-4">
+            {/* Direct Nearby Sync - primary option */}
+            {!isNearbySyncing ? (
+              <button
+                onClick={handleStartNearbySync}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Bluetooth className="w-4 h-4" />
+                مزامنة مباشرة الآن (بدون ملفات)
+              </button>
+            ) : (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-emerald-700 animate-spin shrink-0" />
+                  <p className="text-[11px] font-bold text-emerald-800 leading-relaxed">{nearbySyncMsg}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleStopNearbySync()}
+                  className="w-full flex items-center justify-center gap-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 py-1.5 rounded-lg transition cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  إلغاء المزامنة
+                </button>
+              </div>
+            )}
+            <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+              اضغط الموظفان الزر بنفس الوقت على الجهازين وهما قريبان من بعض، وبتتم المزامنة تلقائياً خلال ثوانٍ.
+            </p>
+
+            <div className="border-t border-gray-100 pt-2.5">
+              <p className="text-[10px] text-gray-400 text-center mb-2">أو كطريقة احتياطية (لو تعذّر الاتصال المباشر):</p>
+            </div>
+
             {/* Export DB Button */}
             <button
               onClick={handleExportDB}
@@ -627,6 +745,10 @@ export default function SettingsView({
                 استيراد نسخة احتياطية (رفع ملف البيانات)
               </button>
             </div>
+            <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+              ملفات النسخ الاحتياطية تُسمّى تلقائياً بالتاريخ والوقت (مثال: MrGamer-Backup-2026-08-01_15-30)، فرتّب
+              الملفات حسب "الأحدث أولاً" بمدير الملفات لتصل لآخر نسخة بسرعة.
+            </p>
           </div>
         </div>
       </div>

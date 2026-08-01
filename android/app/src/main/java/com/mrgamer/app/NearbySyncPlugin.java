@@ -94,7 +94,7 @@ public class NearbySyncPlugin extends Plugin {
             call.resolve(ret);
             return;
         }
-        requestPermissionLauncher.launch(call);
+        requestAllPermissions(call, "permissionCallback");
     }
 
     @PermissionCallback

@@ -48,8 +48,9 @@ public class NearbySyncPlugin extends Plugin {
 
     private ConnectionsClient connectionsClient;
     private String outgoingData;
+    private long outgoingTimestamp = 0;
     private String connectedEndpointId;
-    private boolean hasSentData = false;
+    private boolean isRoleDetermined = false;
 
     private static String[] requiredPermissions() {
         List<String> perms = new ArrayList<>();
@@ -105,23 +106,44 @@ public class NearbySyncPlugin extends Plugin {
         public void onPayloadReceived(String endpointId, Payload payload) {
             if (payload.getType() == Payload.Type.BYTES) {
                 byte[] bytes = payload.asBytes();
-                if (bytes != null) {
-                    String receivedJson = new String(bytes, StandardCharsets.UTF_8);
+                if (bytes == null) return;
+                String receivedStr = new String(bytes, StandardCharsets.UTF_8);
+
+                // فحص هل الرسالة المستقبلة هي تاريخ أم ملف بيانات كامل
+                if (receivedStr.startsWith("TIME:")) {
+                    long incomingTime = Long.parseLong(receivedStr.replace("TIME:", "").trim());
+                    handleTimestampExchange(incomingTime);
+                } else {
                     JSObject data = new JSObject();
-                    data.put("data", receivedJson);
+                    data.put("data", receivedStr);
                     notifyListeners("dataReceived", data);
-                    emitStatus("received", "تم استلام بيانات الجهاز الآخر");
+                    emitStatus("received", "تم استلام النسخة الأحدث بنجاح");
                 }
             }
         }
 
         @Override
         public void onPayloadTransferUpdate(String endpointId, PayloadTransferUpdate update) {
-            if (update.getStatus() == PayloadTransferUpdate.Status.SUCCESS && hasSentData) {
-                emitStatus("sent", "تم إرسال بياناتنا بنجاح");
+            if (update.getStatus() == PayloadTransferUpdate.Status.SUCCESS && isRoleDetermined) {
+                emitStatus("sent", "تم إرسال البيانات الحديثة للجهاز الآخر بنجاح");
             }
         }
     };
+
+    private void handleTimestampExchange(long incomingTime) {
+        if (outgoingTimestamp > incomingTime) {
+            // بياناتنا أحدث -> نرسل ملفنا الكامل
+            isRoleDetermined = true;
+            sendFullData();
+        } else if (outgoingTimestamp < incomingTime) {
+            // بيانات الجهاز الآخر أحدث -> ننتظر استلام ملفه
+            isRoleDetermined = true;
+            emitStatus("receiving", "بيانات الجهاز الآخر أحدث، جاري الاستلام...");
+        } else {
+            // البيانات متطابقة تماماً
+            emitStatus("upToDate", "البيانات متطابقة تماماً بين الجهازين");
+        }
+    }
 
     @PluginMethod
     public void startSync(PluginCall call) {
@@ -132,7 +154,8 @@ public class NearbySyncPlugin extends Plugin {
 
         final String deviceName = call.getString("deviceName", "MrGamer Device");
         outgoingData = call.getString("backupJson", "");
-        hasSentData = false;
+        outgoingTimestamp = call.getLong("timestamp", System.currentTimeMillis());
+        isRoleDetermined = false;
         connectedEndpointId = null;
 
         connectionsClient = Nearby.getConnectionsClient(getContext());
@@ -148,10 +171,10 @@ public class NearbySyncPlugin extends Plugin {
             public void onConnectionResult(String endpointId, ConnectionResolution result) {
                 if (result.getStatus().isSuccess()) {
                     connectedEndpointId = endpointId;
-                    emitStatus("connected", "تم الاتصال بنجاح");
+                    emitStatus("connected", "تم الاتصال، جاري مقارنة التواريخ...");
                     connectionsClient.stopAdvertising();
                     connectionsClient.stopDiscovery();
-                    sendOutgoingData();
+                    sendTimestampOnly();
                 } else {
                     emitStatus("error", "فشل الاتصال بالجهاز الآخر");
                 }
@@ -188,13 +211,18 @@ public class NearbySyncPlugin extends Plugin {
         call.resolve();
     }
 
-    private void sendOutgoingData() {
-        if (connectedEndpointId == null || outgoingData == null) return;
-        byte[] bytes = outgoingData.getBytes(StandardCharsets.UTF_8);
-        Payload payload = Payload.fromBytes(bytes);
+    private void sendTimestampOnly() {
+        if (connectedEndpointId == null) return;
+        String timeMsg = "TIME:" + outgoingTimestamp;
+        Payload payload = Payload.fromBytes(timeMsg.getBytes(StandardCharsets.UTF_8));
         connectionsClient.sendPayload(connectedEndpointId, payload);
-        hasSentData = true;
-        emitStatus("sending", "جاري إرسال بياناتنا...");
+    }
+
+    private void sendFullData() {
+        if (connectedEndpointId == null || outgoingData == null) return;
+        Payload payload = Payload.fromBytes(outgoingData.getBytes(StandardCharsets.UTF_8));
+        connectionsClient.sendPayload(connectedEndpointId, payload);
+        emitStatus("sending", "بياناتنا هي الأحدث، جاري إرسالها...");
     }
 
     @PluginMethod

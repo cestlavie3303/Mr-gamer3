@@ -124,7 +124,6 @@ public class NearbySyncPlugin extends Plugin {
                     notifyListeners("dataReceived", data);
                     emitStatus("received", "تم استلام النسخة الأحدث بنجاح");
                     
-                    // تأخير إغلاق الاتصال بعد الاستلام لضمان المعالجة
                     new Handler(Looper.getMainLooper()).postDelayed(() -> disconnectAndClean(), 1500);
                 }
             }
@@ -146,14 +145,11 @@ public class NearbySyncPlugin extends Plugin {
 
     private void handleTimestampExchange(long incomingTime) {
         if (outgoingTimestamp > incomingTime) {
-            // بياناتنا أحدث -> نرسل ملفنا الكامل
             emitStatus("sending", "بياناتنا هي الأحدث، جاري إرسالها...");
             sendFullData();
         } else if (outgoingTimestamp < incomingTime) {
-            // بيانات الجهاز الآخر أحدث -> ننتظر استلام ملفه
             emitStatus("receiving", "بيانات الجهاز الآخر أحدث، جاري الاستلام...");
         } else {
-            // البيانات متطابقة تماماً
             emitStatus("upToDate", "البيانات متطابقة تماماً بين الجهازين");
             new Handler(Looper.getMainLooper()).postDelayed(() -> disconnectAndClean(), 1000);
         }
@@ -166,11 +162,13 @@ public class NearbySyncPlugin extends Plugin {
             return;
         }
 
+        // تنظيف أي اتصال سابق لضمان فتح المزامنة من جديد
+        disconnectAndClean();
+
         final String deviceName = call.getString("deviceName", "MrGamer Device");
         outgoingData = call.getString("backupJson", "");
         outgoingTimestamp = call.getLong("timestamp", System.currentTimeMillis());
         isSendingFullData = false;
-        connectedEndpointId = null;
 
         connectionsClient = Nearby.getConnectionsClient(getContext());
 
@@ -189,7 +187,6 @@ public class NearbySyncPlugin extends Plugin {
                     connectionsClient.stopAdvertising();
                     connectionsClient.stopDiscovery();
                     
-                    // إرسال التاريخ بعد الاتصال بوقت قصير لضمان جاهزية القناة
                     new Handler(Looper.getMainLooper()).postDelayed(() -> sendTimestampOnly(), 500);
                 } else {
                     emitStatus("error", "فشل الاتصال بالجهاز الآخر");

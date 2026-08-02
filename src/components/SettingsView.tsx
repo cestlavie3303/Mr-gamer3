@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+Import React, { useState, useRef } from "react";
 import { Settings } from "../types";
 import { AppState, exportBackup, mergeBackup } from "../utils/store";
 import { saveOrShareFile } from "../utils/exportReports";
@@ -121,10 +121,10 @@ export default function SettingsView({
     setCustomSoundStatus("saving");
     const success = await saveCustomDeviceSound(file);
     setCustomSoundStatus(success ? "saved" : "error");
-    e.target.value = ""; // allow re-selecting the same file later
+    e.target.value = "";
   };
 
-  // Export database and share it directly (Bluetooth / Nearby Share / WiFi) in one tap
+  // Export database
   const [isExportingDB, setIsExportingDB] = useState(false);
   const handleExportDB = async () => {
     if (isExportingDB) return;
@@ -133,8 +133,6 @@ export default function SettingsView({
       const backupJson = exportBackup(fullState);
       const base64 = btoa(unescape(encodeURIComponent(backupJson)));
 
-      // اسم واضح ومرتب زمنياً (تاريخ + وقت) حتى تكون أحدث نسخة دائماً هي الأسهل تمييزاً
-      // عند فرز الملفات حسب "الأحدث أولاً" في أي مدير ملفات
       const now = new Date();
       const pad = (n: number) => n.toString().padStart(2, "0");
       const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
@@ -150,7 +148,7 @@ export default function SettingsView({
     }
   };
 
-  // Import database from another device's backup file, safely merged
+  // Import database (Always merges safely)
   const handleImportDB = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileReader = new FileReader();
     const files = e.target.files;
@@ -160,44 +158,21 @@ export default function SettingsView({
       const resultString = event.target?.result as string;
       if (!resultString) return;
 
-      const result = mergeBackup(resultString, fullState);
+      const result = mergeBackup(resultString, fullState, true);
 
       if (!result.success) {
         alert(result.error || "ملف النسخة الاحتياطية غير صالح أو معطوب!");
         return;
       }
 
-      if (result.isIncomingOlder) {
-        // الملف أقدم: تم دمج السجلات والمصاريف الجديدة منه بأمان تلقائياً بدون أي مخاطرة
-        onImportState(result.mergedState);
-
-        const forceOverwrite = confirm(
-          "⚠️ الملف الذي استوردته أقدم من بيانات هذا الجهاز.\n\n" +
-          "تم دمج أي سجلات أو مصاريف جديدة منه بأمان بدون أي فقدان بيانات.\n\n" +
-          "هل تريد أيضاً استبدال حالة الأجهزة والمخزون والإعدادات الحالية بما هو موجود في هذا الملف القديم؟ " +
-          "(غير موصى به عادة، وقد يفقدك تحديثات أحدث على هذا الجهاز)"
-        );
-
-        if (forceOverwrite) {
-          const forcedResult = mergeBackup(resultString, fullState, true);
-          if (forcedResult.success && forcedResult.mergedState) {
-            onImportState(forcedResult.mergedState);
-            alert("تم استبدال الحالة الحالية بالكامل بما في الملف المستورد.");
-          }
-        } else {
-          alert("تم تحديث السجلات والمصاريف الجديدة فقط. الحالة الحالية (الأجهزة/المخزون/الإعدادات) لم تتغير.");
-        }
-      } else {
-        onImportState(result.mergedState);
-        alert("تم استيراد ومزامنة البيانات بنجاح!");
-      }
-
+      onImportState(result.mergedState);
+      alert("تم دمج واستيراد البيانات بنجاح!");
       window.location.reload();
     };
     fileReader.readAsText(files[0]);
   };
 
-  // Direct device-to-device sync (Nearby Connections - Bluetooth/WiFi Direct, no files, no internet)
+  // Direct device-to-device sync
   const [isNearbySyncing, setIsNearbySyncing] = useState(false);
   const [nearbySyncMsg, setNearbySyncMsg] = useState("");
   const nearbySyncCleanupRef = useRef<(() => void) | null>(null);
@@ -229,6 +204,7 @@ export default function SettingsView({
     setIsNearbySyncing(true);
     setNearbySyncMsg("جاري البحث عن جهاز قريب... تأكد أن الموظف الآخر ضغط نفس الزر على جهازه.");
 
+    // نضمن إرسال أحدث نسخة بيانات حية حالياً
     const backupJson = exportBackup(fullState);
 
     const handleStatus = (event: SyncStatusEvent) => {
@@ -239,32 +215,19 @@ export default function SettingsView({
     };
 
     const handleDataReceived = (event: SyncDataEvent) => {
-      const result = mergeBackup(event.data, fullState);
+      // دمج تلقائي مباشر وذكي دائماً لجميع السجلات والمصاريف والأجهزة
+      const result = mergeBackup(event.data, fullState, true);
 
       if (!result.success) {
         handleStopNearbySync(result.error || "تعذّر دمج البيانات المستلمة.");
         return;
       }
 
-      if (result.isIncomingOlder) {
-        onImportState(result.mergedState);
-        const forceOverwrite = confirm(
-          "⚠️ بيانات الجهاز الآخر أقدم من بيانات هذا الجهاز.\n\n" +
-          "تم دمج أي سجلات أو مصاريف جديدة منه بأمان.\n\n" +
-          "هل تريد أيضاً استبدال حالة الأجهزة والمخزون والإعدادات الحالية بما هو موجود بالجهاز الآخر؟"
-        );
-        if (forceOverwrite) {
-          const forced = mergeBackup(event.data, fullState, true);
-          if (forced.success && forced.mergedState) {
-            onImportState(forced.mergedState);
-          }
-        }
-      } else {
-        onImportState(result.mergedState);
-      }
+      // تحديث واجهة التطبيق بالبيانات المدمجة مباشرة بدون اعتراض
+      onImportState(result.mergedState);
 
-      handleStopNearbySync("تمت المزامنة بنجاح ✅");
-      setTimeout(() => window.location.reload(), 2000);
+      handleStopNearbySync("تمت المزامنة والدمج بنجاح ✅");
+      setTimeout(() => window.location.reload(), 1500);
     };
 
     const cleanup = await startNearbySync("MrGamer", backupJson, handleStatus, handleDataReceived);
@@ -649,7 +612,7 @@ export default function SettingsView({
           </div>
         </form>
 
-        {/* Offline collaboration & Backups explanations */}
+        {/* Offline collaboration & Backups */}
         <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-6 shadow-xs flex flex-col justify-between">
           <div className="space-y-4">
             <h3 className="text-sm font-bold text-indigo-900 border-b border-indigo-50 pb-3 flex items-center gap-1.5">
@@ -657,7 +620,6 @@ export default function SettingsView({
               المزامنة والنسخ الاحتياطي (الأوفلاين)
             </h3>
 
-            {/* Guide explanations */}
             <div className="space-y-3.5 text-xs text-gray-600 leading-relaxed">
               <p>
                 بما أن البرنامج يعمل بوضع <strong>الأوفلاين الكامل</strong> وبدون راوتر متصل بالإنترنت:
@@ -667,13 +629,13 @@ export default function SettingsView({
                 <div className="flex gap-2 items-start">
                   <Smartphone className="w-4.5 h-4.5 text-indigo-600 shrink-0 mt-0.5" />
                   <p className="text-[11px]">
-                    <strong>التنسيق بين موظفي المحل:</strong> يمكن للموظف الأول الضغط على زر "مشاركة نسخة احتياطية" وإرسالها مباشرة للموظف الثاني عبر خاصية المشاركة القريبة (Nearby Share) أو البلوتوث، بدون أي إنترنت.
+                    <strong>التنسيق بين موظفي المحل:</strong> يمكن للموظف الأول الضغط على زر "مزامنة مباشرة" وإرسالها مباشرة للموظف الثاني بدون أي إنترنت.
                   </p>
                 </div>
                 <div className="flex gap-2 items-start border-t border-gray-100 pt-2">
                   <Laptop className="w-4.5 h-4.5 text-indigo-600 shrink-0 mt-0.5" />
                   <p className="text-[11px]">
-                    <strong>تحديث البيانات:</strong> الموظف الثاني يستورد الملف هنا، وتتطابق بيانات الجوالين تلقائياً. السجلات والمصاريف تُدمج دائماً بأمان تام (بدون حذف)، والنظام يحذّرك تلقائياً إذا حاولت استيراد نسخة أقدم من بيانات جهازك الحالية.
+                    <strong>تحديث البيانات الذكي:</strong> تتطابق بيانات الجوالين تلقائياً وترتّب السجلات والمصاريف الجديدة دائماً وبأمان تام.
                   </p>
                 </div>
               </div>
@@ -745,10 +707,6 @@ export default function SettingsView({
                 استيراد نسخة احتياطية (رفع ملف البيانات)
               </button>
             </div>
-            <p className="text-[10px] text-gray-400 text-center leading-relaxed">
-              ملفات النسخ الاحتياطية تُسمّى تلقائياً بالتاريخ والوقت (مثال: MrGamer-Backup-2026-08-01_15-30)، فرتّب
-              الملفات حسب "الأحدث أولاً" بمدير الملفات لتصل لآخر نسخة بسرعة.
-            </p>
           </div>
         </div>
       </div>

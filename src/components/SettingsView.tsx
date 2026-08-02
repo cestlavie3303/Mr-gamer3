@@ -1,4 +1,4 @@
-Import React, { useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 import { Settings } from "../types";
 import { AppState, exportBackup, mergeBackup } from "../utils/store";
 import { saveOrShareFile } from "../utils/exportReports";
